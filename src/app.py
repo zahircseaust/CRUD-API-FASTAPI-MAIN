@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from database import Base, engine, SessionLocal
 from models import User
 from schema import UserCreate, UserResponse,UserLogin
+from response import create_response,ApiResponse
 from schema import get_db
 import secrets
 import os
@@ -77,14 +78,49 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
 
 #     access_token = Authorize.create_access_token(subject=db_user.id)
 #     return {"access_token": access_token}
-@app.post("/login")
+@app.post("/login", response_model=ApiResponse)
 def login(user: UserLogin, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
+    # Retrieve user from the database
     db_user = db.query(User).filter(User.email == user.email).first()
     if not db_user or not bcrypt.verify(user.password, db_user.password):
-        raise HTTPException(status_code=400, detail="Invalid credentials")
+        return create_response(success=False, message="Invalid credentials")
 
+    # Create access and refresh tokens
     access_token = Authorize.create_access_token(subject=db_user.id)
-    return {"access_token": access_token}
+    refresh_token = Authorize.create_refresh_token(subject=db_user.id)
+
+    # Include user details in the response
+    user_data = {
+        "username": db_user.username,
+        "email": db_user.email,
+        "is_active": db_user.is_active
+    }
+
+    return create_response(
+        success=True,
+        message="Login successful",
+        data={
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "user": user_data
+        }
+    )
+
+
+@app.post("/refresh")
+def refresh(Authorize: AuthJWT = Depends()):
+    try:
+        # Ensure the refresh token is valid
+        Authorize.jwt_refresh_token_required()
+
+        # Get the subject (user ID) from the refresh token
+        current_user = Authorize.get_jwt_subject()
+
+        # Create a new access token
+        new_access_token = Authorize.create_access_token(subject=current_user)
+        return {"access_token": new_access_token}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Token is invalid or expired")
 
 @app.get("/get-users")
 def get_users(Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
