@@ -18,6 +18,7 @@ from fastapi_jwt_auth import AuthJWT
 from fastapi import FastAPI, Depends
 from fastapi_jwt_auth import AuthJWT
 from fastapi.openapi.utils import get_openapi
+from fastapi.middleware.cors import CORSMiddleware
 
 
 app = FastAPI()
@@ -67,17 +68,9 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     )
     db.add(db_user)
     db.commit()
-    db.refresh(db_user)
+    db.refresh(db_user)  
     return db_user
-
-# @app.post("/login")
-# def login(user: UserCreate, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
-#     db_user = db.query(User).filter(User.email == user.email).first()
-#     if not db_user or not bcrypt.verify(user.password, db_user.password):
-#         raise HTTPException(status_code=400, detail="Invalid credentials")
-
-#     access_token = Authorize.create_access_token(subject=db_user.id)
-#     return {"access_token": access_token}
+    
 @app.post("/login", response_model=ApiResponse)
 def login(user: UserLogin, Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
     # Retrieve user from the database
@@ -128,7 +121,15 @@ def get_users(Authorize: AuthJWT = Depends(), db: Session = Depends(get_db)):
 
     # Fetch all users from the database
     users = db.query(User).all()
-    return users
+    return [
+        {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "is_active": user.is_active
+        }
+        for user in users
+    ]
 
 @app.get("/users/{user_id}", response_model=UserResponse)
 def get_user(user_id: int, db: Session = Depends(get_db), Authorize: AuthJWT = Depends()):
@@ -207,3 +208,11 @@ async def openapi():
     }
     openapi_schema["security"] = [{"BearerAuth": []}]
     return openapi_schema
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Frontend origin
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
